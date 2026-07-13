@@ -15,3 +15,6 @@ __pycache__/
 
 # Claude Code (arquivos locais de sessão)
 .claude/
+
+# Dados coletados/derivados (regeneráveis pelo pipeline, não versionados)
+*.csv
