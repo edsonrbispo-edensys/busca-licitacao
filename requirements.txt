@@ -5,8 +5,6 @@ requests>=2.31         # coleta de dados (API do PNCP)
 python-dotenv>=1.0     # carregar o .env
 pandas>=2.0            # manipulação de dados
 jupyter>=1.0           # Quarto renderiza Python via Jupyter
-
-# Para paper com análise/estatística (descomente se usar):
-# numpy>=1.26
-# statsmodels>=0.14
-# matplotlib>=3.8
+numpy>=1.26            # suporte numérico
+statsmodels>=0.14      # regressão (OLS) para o paper
+matplotlib>=3.8        # figuras do paper

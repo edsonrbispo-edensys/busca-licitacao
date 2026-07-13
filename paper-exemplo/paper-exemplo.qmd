@@ -1,0 +1,248 @@
+---
+lang: pt-BR
+bibliography: referencias.bib
+format:
+  pdf:
+    pdf-engine: xelatex
+    toc: false
+    number-sections: true
+    geometry:
+      - margin=2.5cm
+    fontsize: 11pt
+    code-overflow: wrap
+    code-block-bg: "#F7F7F7"
+    code-block-border-left: false
+    highlight-style: github
+    fig-width: 8
+    fig-height: 4.5
+    fig-pos: H
+header-includes:
+  - |
+    \usepackage{etoolbox}
+    \usepackage{graphicx}
+    \usepackage{hyperref}
+    \usepackage{booktabs}
+    \usepackage{threeparttable}
+    \usepackage{caption}
+    \captionsetup[table]{skip=4pt}
+    \renewcommand{\maketitle}{}
+    \AtBeginEnvironment{Shaded}{\footnotesize}
+    \AtBeginEnvironment{verbatim}{\footnotesize}
+    \AtBeginEnvironment{longtable}{\small}
+    \AtBeginEnvironment{tabular}{\small}
+execute:
+  eval: true
+  echo: true
+  warning: false
+  message: false
+---
+
+```{=latex}
+\begin{titlepage}
+\thispagestyle{empty}
+\centering
+
+\includegraphics[width=4cm]{AM.png}
+
+\vspace{0.8cm}
+
+{\huge\bfseries Do Texto à Decisão: um Índice de Tom de Avaliações e a Satisfação do Cliente\par}
+
+\vspace{1em}
+
+{\Large Exemplo de paper técnico no padrão Análise Macro (disciplina AI Applications)\par}
+
+\vspace{1.5em}
+
+{\large Aluno(a) Exemplo --- MBA AI Applications\par}
+
+\vspace{0.5em}
+
+{\normalsize 27 de junho de 2026\par}
+
+\vspace{0.2em}
+
+{\footnotesize Versão 1.0\par}
+
+\vspace{1.5em}
+
+\begin{minipage}{0.9\textwidth}
+\footnotesize
+\setlength{\parindent}{0pt}
+
+\noindent\textbf{Resumo.} As avaliações textuais que clientes deixam após um atendimento
+carregam, em escolhas sutis de linguagem, informação sobre a satisfação que uma nota
+numérica isolada não captura. Este trabalho ilustra, com dados simulados para fins
+didáticos, a construção de um \emph{Índice de Tom} dessas avaliações usando um modelo de
+linguagem de grande porte (LLM) com saída estruturada via Pydantic, e calibra esse índice
+contra a satisfação observada (NPS) por meio de regressão linear simples. O objetivo não é
+o resultado em si --- os dados são sintéticos --- mas demonstrar o \textbf{formato de
+entrega} esperado na disciplina: um \emph{pipeline} reprodutível em que todo número exibido
+nasce de um \emph{chunk} que roda. No exercício, o tom explica parcela relevante da
+variação de satisfação, com sensibilidade $\hat{\beta}$ positiva e estatisticamente
+significante, evidenciando que medir tom agrega sinal sobre a nota bruta.
+
+\smallskip
+\noindent\textbf{Palavras-chave:} Processamento de Linguagem Natural; LLM; Saída Estruturada;
+Satisfação do Cliente; CRISP-DM.
+\end{minipage}
+
+\end{titlepage}
+```
+
+# Introdução
+
+Empresas coletam, todos os dias, milhares de avaliações textuais. A nota numérica resume
+parte da experiência, mas o **tom do texto** — entusiasmo, frustração, ironia — guarda
+sinal adicional sobre a satisfação real e sobre o risco de *churn*. Transformar esse texto
+em um **número comparável** permite usá-lo em modelos de decisão.
+
+Este paper é um **exemplo didático** da disciplina *AI Applications*: mostra, do começo ao
+fim, como entregar um relatório técnico reprodutível no padrão Análise Macro. Os dados são
+**simulados de propósito**, para que o documento renderize sem chaves de API; o que importa
+aqui é o **método e o formato**, não o resultado numérico.
+
+# Revisão da Literatura
+
+A medição de tom em texto econômico-financeiro tem tradição em dicionários
+[@loughran2011], depois ampliada por métodos supervisionados e, mais recentemente, por
+LLMs com saída estruturada [@anthropic_docs]. A contribuição metodológica deste exemplo é
+combinar **scoring por LLM** com **calibração estatística** simples e auditável.
+
+# Metodologia e Dados
+
+Seguimos o fluxo **CRISP-DM**: (i) *entendimento do negócio* — prever satisfação a partir
+de avaliações; (ii) *dados* — avaliações textuais + NPS observado; (iii) *preparação* —
+limpeza e recorte; (iv) *modelagem* — score de tom por LLM (escala $-3$ a $+3$) via schema
+Pydantic; (v) *avaliação* — OLS do NPS sobre o score; (vi) *implantação* — este paper
+reprodutível.
+
+A seção de Modelagem mostra o **schema de saída estruturada** que seria usado em produção;
+para manter o exemplo offline, a calibração roda sobre um conjunto **simulado** de scores.
+
+# Implementação
+
+## Configuração do ambiente
+
+```{python}
+#| echo: true
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(42)  # semente fixa → resultado reprodutível
+```
+
+## Modelagem com LLM (saída estruturada)
+
+O bloco abaixo **não é executado** (`eval: false`): é o molde de como pontuar o tom de cada
+avaliação com um LLM, forçando um `float` via schema. Em um projeto real, ele preencheria a
+coluna `score`.
+
+```{python}
+#| eval: false
+#| echo: true
+import os
+import anthropic
+from pydantic import BaseModel, Field
+
+class TomAvaliacao(BaseModel):
+    score: float = Field(description="Tom de -3 (muito negativo) a +3 (muito positivo)")
+
+cliente = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+ferramenta = {
+    "name": "registrar_tom",
+    "description": "Registra o tom da avaliação.",
+    "input_schema": TomAvaliacao.model_json_schema(),
+}
+# resposta = cliente.messages.create(model="claude-haiku-4-5", temperature=0,
+#     tools=[ferramenta], tool_choice={"type": "tool", "name": "registrar_tom"}, ...)
+```
+
+## Dados (simulados) e calibração
+
+```{python}
+#| echo: true
+n = 120
+# Score de tom "verdadeiro" e NPS gerado com relação linear + ruído.
+score = rng.uniform(-3, 3, size=n)
+nps = 50 + 12.0 * score + rng.normal(0, 15, size=n)
+df = pd.DataFrame({"score": score, "nps": nps})
+
+X = sm.add_constant(df["score"])
+modelo = sm.OLS(df["nps"], X).fit()
+
+beta = modelo.params["score"]
+ic = modelo.conf_int().loc["score"]
+r2 = modelo.rsquared
+pval = modelo.pvalues["score"]
+```
+
+# Resultados
+
+A Tabela @tbl-ols traz a calibração. Todos os valores são lidos do objeto `modelo` — nada
+digitado à mão.
+
+```{python}
+#| echo: false
+#| output: asis
+#| label: tbl-ols
+print(r"""\begin{table}[H]
+\centering
+\begin{threeparttable}
+\caption{Calibração do NPS sobre o Índice de Tom (OLS).}
+\label{tbl-ols}
+\begin{tabular}{lc}
+\toprule
+Parâmetro & Estimativa \\
+\midrule
+""")
+print(rf"$\hat{{\beta}}$ (score) & {beta:.3f} \\")
+print(rf"IC 95\% de $\beta$ & [{ic[0]:.3f}; {ic[1]:.3f}] \\")
+print(rf"$R^2$ & {r2:.3f} \\")
+print(rf"$p$-valor & {pval:.4f} \\")
+print(rf"$n$ & {len(df)} \\")
+print(r"""\bottomrule
+\end{tabular}
+\begin{tablenotes}\footnotesize
+\item Dados simulados para fins didáticos. Erros-padrão clássicos (OLS).
+\end{tablenotes}
+\end{threeparttable}
+\end{table}""")
+```
+
+```{python}
+#| echo: false
+#| label: fig-disp
+#| fig-cap: "Dispersão entre Índice de Tom e NPS, com a reta calibrada."
+fig, ax = plt.subplots()
+ax.scatter(df["score"], df["nps"], alpha=0.6, color="#18a0d7")
+xs = np.linspace(-3, 3, 50)
+ax.plot(xs, modelo.params["const"] + beta * xs, color="#1c2d4f", linewidth=2)
+ax.set_xlabel("Índice de Tom (-3 a +3)")
+ax.set_ylabel("NPS")
+plt.tight_layout()
+plt.show()
+```
+
+O coeficiente $\hat{\beta}$ positivo e significante (Tabela @tbl-ols) mostra que avaliações
+de tom mais positivo associam-se a NPS maior — exatamente o que se esperaria de um índice
+bem calibrado. Em um projeto real, o passo seguinte seria validar **fora da amostra**.
+
+# Próximos Passos
+
+- Substituir os dados simulados por avaliações reais e rodar o scoring por LLM.
+- Validar em camadas (*holdout* e *walk-forward*), como no projeto *Sentimento COPOM*.
+- Comparar provedores de LLM sob o mesmo *prompt* e schema.
+
+# Conclusão
+
+O exemplo entregou um **paper reprodutível** no padrão Análise Macro: capa, resumo, fluxo
+CRISP-DM, tabela em *booktabs/threeparttable* e figura — todos gerados por código. É esse o
+formato esperado na entrega final da disciplina.
+
+# Referências
+
+::: {#refs}
+:::
