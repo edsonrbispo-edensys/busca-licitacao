@@ -1,0 +1,12 @@
+# Dependências do projeto (ajuste conforme a necessidade)
+anthropic>=0.40.0      # LLM via API
+pydantic>=2.0          # saída estruturada
+requests>=2.31         # coleta de dados (API do PNCP)
+python-dotenv>=1.0     # carregar o .env
+pandas>=2.0            # manipulação de dados
+jupyter>=1.0           # Quarto renderiza Python via Jupyter
+
+# Para paper com análise/estatística (descomente se usar):
+# numpy>=1.26
+# statsmodels>=0.14
+# matplotlib>=3.8
