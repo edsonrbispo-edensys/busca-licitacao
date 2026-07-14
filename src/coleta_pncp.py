@@ -1,13 +1,18 @@
-"""Coleta licitações com proposta em aberto no PNCP e filtra por palavra-chave."""
+"""Coleta licitações publicadas no PNCP na última semana e filtra por palavra-chave.
+
+Roda semanalmente: busca só o que foi publicado desde a última execução (janela de 7
+dias), em vez de reprocessar todo o universo de licitações abertas a cada vez.
+"""
 
 import json
+import re
 import time
 from datetime import date, timedelta
 
 import pandas as pd
 import requests
 
-BASE_URL = "https://pncp.gov.br/api/consulta/v1/contratacoes/proposta"
+BASE_URL = "https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao"
 MODALIDADES = [6, 8]  # Pregão Eletrônico, Dispensa
 TAMANHO_PAGINA = 50
 
@@ -27,8 +32,10 @@ PALAVRAS_CHAVE = [
 ]
 
 
-def _data_final_padrao(dias: int = 30) -> str:
-    return (date.today() + timedelta(days=dias)).strftime("%Y%m%d")
+def _janela_semanal(dias: int = 7) -> tuple[str, str]:
+    hoje = date.today()
+    inicio = hoje - timedelta(days=dias)
+    return inicio.strftime("%Y%m%d"), hoje.strftime("%Y%m%d")
 
 
 def _get_com_retentativa(params: dict, tentativas: int = 5) -> dict:
@@ -49,14 +56,16 @@ def _get_com_retentativa(params: dict, tentativas: int = 5) -> dict:
     raise RuntimeError("Excedeu as retentativas por rate limit (429) do PNCP")
 
 
-def buscar_licitacoes_abertas(data_final: str | None = None) -> pd.DataFrame:
-    """Busca no PNCP as licitações com proposta em aberto nas modalidades de interesse."""
-    data_final = data_final or _data_final_padrao()
+def buscar_licitacoes_da_semana(data_inicial: str | None = None, data_final: str | None = None) -> pd.DataFrame:
+    """Busca no PNCP as licitações publicadas na janela (padrão: últimos 7 dias), nas modalidades de interesse."""
+    if data_inicial is None or data_final is None:
+        data_inicial, data_final = _janela_semanal()
     registros = []
     for modalidade in MODALIDADES:
         pagina = 1
         while True:
             params = {
+                "dataInicial": data_inicial,
                 "dataFinal": data_final,
                 "codigoModalidadeContratacao": modalidade,
                 "pagina": pagina,
@@ -73,13 +82,24 @@ def buscar_licitacoes_abertas(data_final: str | None = None) -> pd.DataFrame:
 
 def filtrar_por_palavra_chave(df: pd.DataFrame, palavras: list[str] = PALAVRAS_CHAVE) -> pd.DataFrame:
     """Mantém só as linhas cujo objetoCompra contém alguma palavra-chave (case-insensitive)."""
-    padrao = "|".join(palavras)
+    if df.empty:
+        return df
+    padrao = "|".join(rf"\b{re.escape(p)}\b" for p in palavras)
     mascara = df["objetoCompra"].str.contains(padrao, case=False, na=False, regex=True)
     return df[mascara].reset_index(drop=True)
 
 
+def filtrar_ainda_abertas(df: pd.DataFrame) -> pd.DataFrame:
+    """Mantém só as licitações cuja proposta ainda não encerrou."""
+    if df.empty:
+        return df
+    encerramento = pd.to_datetime(df["dataEncerramentoProposta"], errors="coerce")
+    return df[encerramento >= pd.Timestamp.now()].reset_index(drop=True)
+
+
 if __name__ == "__main__":
-    bruto = buscar_licitacoes_abertas()
+    bruto = buscar_licitacoes_da_semana()
     filtrado = filtrar_por_palavra_chave(bruto)
-    print(f"Total coletado: {len(bruto)} | Após filtro por palavra-chave: {len(filtrado)}")
+    filtrado = filtrar_ainda_abertas(filtrado)
+    print(f"Publicadas na semana: {len(bruto)} | Após palavra-chave e ainda abertas: {len(filtrado)}")
     filtrado.to_csv("licitacoes_filtradas.csv", index=False, encoding="utf-8-sig")
