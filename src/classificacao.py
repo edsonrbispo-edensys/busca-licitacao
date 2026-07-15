@@ -39,7 +39,7 @@ Objetos ambíguos ou de outra natureza (ex.: vigilância em saúde/eletrônica, 
 locação de veículos) não são relevantes, mesmo que mencionem palavras parecidas de passagem."""
 
 
-def _get_com_retentativa(payload: dict, api_key: str, tentativas: int = 5) -> dict:
+def _get_com_retentativa(payload: dict, api_key: str, tentativas: int = 8) -> dict:
     """POST com retentativa: rate limit (429) e falhas de rede/DNS transitórias são esperadas
     ao longo de uma rodada com centenas de chamadas."""
     for tentativa in range(1, tentativas + 1):
@@ -52,8 +52,9 @@ def _get_com_retentativa(payload: dict, api_key: str, tentativas: int = 5) -> di
             time.sleep(5 * tentativa)
             continue
         if resp.status_code == 429:
-            print(f"  [429] rate limit, tentativa {tentativa}/{tentativas}")
-            time.sleep(int(resp.headers.get("Retry-After", 10 * tentativa)))
+            espera = int(resp.headers.get("Retry-After", 15 * tentativa))
+            print(f"  [429] rate limit, tentativa {tentativa}/{tentativas}, esperando {espera}s")
+            time.sleep(espera)
             continue
         resp.raise_for_status()
         return resp.json()
@@ -86,12 +87,12 @@ def _salvar_checkpoint(df_parcial: pd.DataFrame, resultados: list[ClassificacaoL
 
 
 def classificar_dataframe(
-    df: pd.DataFrame, pausa: float = 4.5, checkpoint: str = "licitacoes_classificacao_checkpoint.csv"
+    df: pd.DataFrame, pausa: float = 6.0, checkpoint: str = "licitacoes_classificacao_checkpoint.csv"
 ) -> pd.DataFrame:
     """Classifica cada linha (coluna objetoCompra) e retorna só as relevantes.
 
-    Sequencial e pausado (pausa >= 4.5s) para respeitar a cota gratuita de 15 req/min
-    do gemini-3.1-flash-lite sem cair em retentativas por 429. Salva um checkpoint a
+    Sequencial e pausado (pausa >= 6s, ~10 req/min) com margem de sobra sob a cota
+    gratuita de 15 req/min do gemini-3.1-flash-lite. Salva um checkpoint a
     cada 20 linhas e retoma dele se a rodada (longa) for interrompida por instabilidade
     de rede — sem isso, uma falha no meio do caminho perde todo o progresso.
     """
