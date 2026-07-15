@@ -77,18 +77,46 @@ def classificar_objeto(objeto_compra: str, api_key: str) -> ClassificacaoLicitac
     return ClassificacaoLicitacao.model_validate_json(texto)
 
 
-def classificar_dataframe(df: pd.DataFrame, pausa: float = 4.5) -> pd.DataFrame:
+def _salvar_checkpoint(df_parcial: pd.DataFrame, resultados: list[ClassificacaoLicitacao], caminho: str) -> None:
+    parcial = df_parcial.copy()
+    parcial["categoria"] = [r.categoria for r in resultados]
+    parcial["descricao_resumida"] = [r.descricao_resumida for r in resultados]
+    parcial["relevante"] = [r.relevante for r in resultados]
+    parcial.to_csv(caminho, index=False, encoding="utf-8-sig")
+
+
+def classificar_dataframe(
+    df: pd.DataFrame, pausa: float = 4.5, checkpoint: str = "licitacoes_classificacao_checkpoint.csv"
+) -> pd.DataFrame:
     """Classifica cada linha (coluna objetoCompra) e retorna só as relevantes.
 
     Sequencial e pausado (pausa >= 4.5s) para respeitar a cota gratuita de 15 req/min
-    do gemini-3.1-flash-lite sem cair em retentativas por 429.
+    do gemini-3.1-flash-lite sem cair em retentativas por 429. Salva um checkpoint a
+    cada 20 linhas e retoma dele se a rodada (longa) for interrompida por instabilidade
+    de rede — sem isso, uma falha no meio do caminho perde todo o progresso.
     """
     api_key = os.environ["GOOGLE_API_KEY"]
-    resultados = []
-    for i, objeto in enumerate(df["objetoCompra"]):
+
+    resultados: list[ClassificacaoLicitacao] = []
+    if os.path.exists(checkpoint):
+        parcial = pd.read_csv(checkpoint, encoding="utf-8-sig")
+        resultados = [
+            ClassificacaoLicitacao(
+                relevante=bool(linha.relevante),
+                categoria=None if pd.isna(linha.categoria) else linha.categoria,
+                descricao_resumida=linha.descricao_resumida,
+            )
+            for linha in parcial.itertuples()
+        ]
+        print(f"Retomando checkpoint: {len(resultados)} linhas já classificadas")
+
+    for i in range(len(resultados), len(df)):
+        objeto = df["objetoCompra"].iloc[i]
         resultados.append(classificar_objeto(objeto, api_key))
-        if i % 10 == 0:
+        if (i + 1) % 10 == 0:
             print(f"  {i + 1}/{len(df)} classificadas")
+        if (i + 1) % 20 == 0:
+            _salvar_checkpoint(df.iloc[: len(resultados)], resultados, checkpoint)
         time.sleep(pausa)
 
     df = df.copy()
